@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check-in Kiosk</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+    <h1>Welcome, please check in</h1>
+</header>
+
+<div class="container">
+
+    <!-- step 1: choose category -->
+    <div class="card category-buttons" id="step1">
+        <h2>Why are you here today?</h2>
+        <button class="emergency" onclick="chooseCategory('EMERGENCY')">Emergency</button>
+        <button class="appointment" onclick="chooseCategory('APPOINTMENT')">Appointment</button>
+        <button class="walkin" onclick="chooseCategory('WALK_IN')">Walk-in</button>
+    </div>
+
+    <!-- step 2: enter details -->
+    <div class="card hidden" id="step2">
+        <h2 id="categoryTitle"></h2>
+
+        <label for="fullName">Full name</label>
+        <input type="text" id="fullName">
+
+        <label for="idNumber">ID number</label>
+        <input type="text" id="idNumber" maxlength="13" inputmode="numeric">
+
+        <p><a href="#" onclick="showNurseCode(); return false;">No ID? Ask a nurse</a></p>
+
+        <div id="nurseSection" class="hidden">
+            <label for="nurseCode">Nurse code word</label>
+            <input type="password" id="nurseCode">
+        </div>
+
+        <p class="error" id="error"></p>
+
+        <button onclick="checkIn()">Get my ticket</button>
+        <button class="red" onclick="startOver()">Back</button>
+    </div>
+
+    <!-- step 3: show ticket -->
+    <div class="card ticket hidden" id="step3">
+        <h2>Your ticket number</h2>
+        <div class="number" id="ticketNumber"></div>
+        <p>File number: <b id="fileNumber"></b></p>
+        <p id="tempCodeText" class="hidden">Temporary code: <b id="tempCode"></b></p>
+        <p id="newPatientText" class="hidden">A new file has been opened for you.</p>
+        <p>People ahead of you: <b id="peopleAhead"></b></p>
+        <p>Please take a seat, your number will be called.</p>
+        <button onclick="startOver()">Done</button>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+    let selectedCategory = null;
+
+    function chooseCategory(category) {
+        selectedCategory = category;
+        document.getElementById("categoryTitle").innerText = formatCategory(category);
+        document.getElementById("step1").classList.add("hidden");
+        document.getElementById("step2").classList.remove("hidden");
+    }
+
+    function showNurseCode() {
+        document.getElementById("nurseSection").classList.remove("hidden");
+    }
+
+    async function checkIn() {
+        const errorText = document.getElementById("error");
+        errorText.innerText = "";
+
+        const request = {
+            fullName: document.getElementById("fullName").value,
+            idNumber: document.getElementById("idNumber").value,
+            nurseCode: document.getElementById("nurseCode").value,
+            category: selectedCategory
+        };
+
+        try {
+            const result = await api("/api/checkin", "POST", request);
+            showTicket(result);
+        } catch (e) {
+            errorText.innerText = e.message;
+        }
+    }
+
+    function showTicket(result) {
+        document.getElementById("ticketNumber").innerText = result.ticketNumber;
+        document.getElementById("fileNumber").innerText = result.fileNumber;
+        document.getElementById("peopleAhead").innerText = result.peopleAhead;
+
+        if (result.tempCode) {
+            document.getElementById("tempCode").innerText = result.tempCode;
+            document.getElementById("tempCodeText").classList.remove("hidden");
+        }
+        if (result.newPatient) {
+            document.getElementById("newPatientText").classList.remove("hidden");
+        }
+
+        document.getElementById("step2").classList.add("hidden");
+        document.getElementById("step3").classList.remove("hidden");
+
+        // go back to the start after 30 seconds for the next person
+        setTimeout(startOver, 30000);
+    }
+
+    function startOver() {
+        // reload clears all the fields
+        window.location.reload();
+    }
+</script>
+</body>
+</html>

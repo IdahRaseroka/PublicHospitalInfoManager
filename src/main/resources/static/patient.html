@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Page</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+    <h1>My Hospital Info</h1>
+    <a href="index.html">Home</a>
+</header>
+
+<div class="container">
+
+    <div class="card" id="loginCard">
+        <h2>Enter your ID number</h2>
+        <input type="text" id="loginId" maxlength="13">
+        <button onclick="login()">View my info</button>
+        <p class="error" id="loginError"></p>
+    </div>
+
+    <div id="patientInfo" class="hidden">
+        <div class="card">
+            <h2 id="welcome"></h2>
+            <p>File number: <b id="fileNumber"></b></p>
+            <button class="red" onclick="logout()">Log out</button>
+        </div>
+
+        <div class="card">
+            <h2>My appointments</h2>
+            <table>
+                <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Doctor</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody id="appointmentTable"></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Past visits</h2>
+            <table>
+                <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Room</th>
+                    <th>Notes</th>
+                </tr>
+                </thead>
+                <tbody id="visitTable"></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Medication reminders</h2>
+            <table>
+                <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Medicine</th>
+                    <th>Dosage</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody id="reminderTable"></tbody>
+            </table>
+
+            <h3>Add reminder</h3>
+            <label for="medicineName">Medicine name</label>
+            <input type="text" id="medicineName">
+            <label for="dosage">Dosage</label>
+            <input type="text" id="dosage" placeholder="e.g. 1 tablet">
+            <label for="reminderTime">Time</label>
+            <input type="time" id="reminderTime">
+            <button onclick="addReminder()">Add reminder</button>
+            <p class="error" id="reminderError"></p>
+        </div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+    let idNumber = null;
+    let reminders = [];
+    let lastAlertMinute = "";
+
+    async function login() {
+        document.getElementById("loginError").innerText = "";
+        const value = document.getElementById("loginId").value.trim();
+
+        try {
+            const patient = await api("/api/patients/" + encodeURIComponent(value));
+            idNumber = value;
+            document.getElementById("welcome").innerText = "Hello " + patient.fullName;
+            document.getElementById("fileNumber").innerText = patient.fileNumber;
+            document.getElementById("loginCard").classList.add("hidden");
+            document.getElementById("patientInfo").classList.remove("hidden");
+
+            loadAppointments();
+            loadVisits();
+            loadReminders();
+        } catch (e) {
+            document.getElementById("loginError").innerText = e.message;
+        }
+    }
+
+    function logout() {
+        window.location.reload();
+    }
+
+    async function loadAppointments() {
+        const appointments = await api("/api/patients/" + idNumber + "/appointments");
+        let rows = "";
+        for (const a of appointments) {
+            rows += "<tr>" +
+                "<td>" + formatDateTime(a.appointmentDate) + "</td>" +
+                "<td>" + escapeHtml(a.doctorName) + "</td>" +
+                "<td>" + escapeHtml(a.reason) + "</td>" +
+                "<td>" + (a.status === "BOOKED" ? "Booked" : "Cancelled") + "</td>" +
+                "</tr>";
+        }
+        if (appointments.length === 0) {
+            rows = "<tr><td colspan='4'>No appointments</td></tr>";
+        }
+        document.getElementById("appointmentTable").innerHTML = rows;
+    }
+
+    async function loadVisits() {
+        const visits = await api("/api/patients/" + idNumber + "/visits");
+        let rows = "";
+        for (const v of visits) {
+            rows += "<tr>" +
+                "<td>" + formatDateTime(v.finishedTime) + "</td>" +
+                "<td>" + formatCategory(v.category) + "</td>" +
+                "<td>" + escapeHtml(v.room) + "</td>" +
+                "<td>" + escapeHtml(v.notes) + "</td>" +
+                "</tr>";
+        }
+        if (visits.length === 0) {
+            rows = "<tr><td colspan='4'>No past visits</td></tr>";
+        }
+        document.getElementById("visitTable").innerHTML = rows;
+    }
+
+    async function loadReminders() {
+        reminders = await api("/api/patients/" + idNumber + "/reminders");
+        let rows = "";
+        for (const r of reminders) {
+            rows += "<tr>" +
+                "<td>" + r.reminderTime.substring(0, 5) + "</td>" +
+                "<td>" + escapeHtml(r.medicineName) + "</td>" +
+                "<td>" + escapeHtml(r.dosage) + "</td>" +
+                "<td><button class='red' onclick='deleteReminder(" + r.id + ")'>Delete</button></td>" +
+                "</tr>";
+        }
+        if (reminders.length === 0) {
+            rows = "<tr><td colspan='4'>No reminders</td></tr>";
+        }
+        document.getElementById("reminderTable").innerHTML = rows;
+    }
+
+    async function addReminder() {
+        document.getElementById("reminderError").innerText = "";
+        const reminder = {
+            medicineName: document.getElementById("medicineName").value,
+            dosage: document.getElementById("dosage").value,
+            reminderTime: document.getElementById("reminderTime").value || null
+        };
+
+        try {
+            await api("/api/patients/" + idNumber + "/reminders", "POST", reminder);
+            document.getElementById("medicineName").value = "";
+            document.getElementById("dosage").value = "";
+            document.getElementById("reminderTime").value = "";
+            loadReminders();
+        } catch (e) {
+            document.getElementById("reminderError").innerText = e.message;
+        }
+    }
+
+    async function deleteReminder(id) {
+        try {
+            await api("/api/patients/" + idNumber + "/reminders/" + id, "DELETE");
+            loadReminders();
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    // checks every 30 seconds if it is time to take medicine
+    // only works while this page is open, the mobile app will do proper notifications later
+    function checkReminders() {
+        const now = new Date();
+        const currentTime = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+        if (currentTime === lastAlertMinute) {
+            return;
+        }
+        for (const r of reminders) {
+            if (r.reminderTime.substring(0, 5) === currentTime) {
+                lastAlertMinute = currentTime;
+                alert("Time to take your medicine: " + r.medicineName + " (" + r.dosage + ")");
+            }
+        }
+    }
+
+    setInterval(checkReminders, 30000);
+</script>
+</body>
+</html>

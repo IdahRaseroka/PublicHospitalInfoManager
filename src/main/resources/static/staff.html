@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+    <h1>Staff Dashboard</h1>
+    <a href="index.html">Home</a>
+    <a href="doctor.html">Appointments</a>
+</header>
+
+<div class="container">
+
+    <div class="card">
+        <h2>Call next patient</h2>
+        <label for="room">Room</label>
+        <input type="text" id="room" placeholder="e.g. Room 3">
+        <button onclick="callNext()">Call next</button>
+        <p class="error" id="callError"></p>
+        <p class="success" id="callMessage"></p>
+    </div>
+
+    <div class="card">
+        <h2>Waiting queue</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Ticket</th>
+                <th>Category</th>
+                <th>Name</th>
+                <th>File number</th>
+                <th>Checked in</th>
+            </tr>
+            </thead>
+            <tbody id="queueTable"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>With a nurse or doctor</h2>
+        <div id="calledList"></div>
+    </div>
+
+    <div class="card">
+        <h2>Find patient file</h2>
+        <label for="searchValue">ID number, temporary code or file number</label>
+        <input type="text" id="searchValue">
+        <button onclick="searchPatient()">Search</button>
+        <p class="error" id="searchError"></p>
+        <div id="searchResult"></div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+    async function loadQueue() {
+        try {
+            const queue = await api("/api/queue");
+            let rows = "";
+            for (const t of queue) {
+                rows += "<tr>" +
+                    "<td><b>" + escapeHtml(t.ticketNumber) + "</b></td>" +
+                    "<td><span class='badge " + t.category + "'>" + formatCategory(t.category) + "</span></td>" +
+                    "<td>" + escapeHtml(t.patient.fullName) + "</td>" +
+                    "<td>" + escapeHtml(t.patient.fileNumber) + "</td>" +
+                    "<td>" + formatDateTime(t.checkInTime) + "</td>" +
+                    "</tr>";
+            }
+            if (queue.length === 0) {
+                rows = "<tr><td colspan='5'>Nobody is waiting</td></tr>";
+            }
+            document.getElementById("queueTable").innerHTML = rows;
+
+            const called = await api("/api/queue/called");
+            let html = "";
+            for (const t of called) {
+                html += "<div class='card'>" +
+                    "<b>" + escapeHtml(t.ticketNumber) + "</b> - " + escapeHtml(t.patient.fullName) +
+                    " (" + escapeHtml(t.patient.fileNumber) + ") in " + escapeHtml(t.room) +
+                    "<textarea id='notes" + t.id + "' placeholder='Visit notes'></textarea>" +
+                    "<button class='green' onclick='finishVisit(" + t.id + ")'>Mark as done</button>" +
+                    "</div>";
+            }
+            if (called.length === 0) {
+                html = "<p>No patients are being seen right now</p>";
+            }
+            // dont redraw while someone is typing notes
+            if (!document.activeElement || document.activeElement.tagName !== "TEXTAREA") {
+                document.getElementById("calledList").innerHTML = html;
+            }
+        } catch (e) {
+            console.log(e);
+        }
+    }
+
+    async function callNext() {
+        document.getElementById("callError").innerText = "";
+        document.getElementById("callMessage").innerText = "";
+        const room = document.getElementById("room").value;
+
+        try {
+            const ticket = await api("/api/queue/next?room=" + encodeURIComponent(room), "POST");
+            document.getElementById("callMessage").innerText =
+                "Ticket " + ticket.ticketNumber + " (" + ticket.patient.fullName + ") please go to " + ticket.room;
+            loadQueue();
+        } catch (e) {
+            document.getElementById("callError").innerText = e.message;
+        }
+    }
+
+    async function finishVisit(ticketId) {
+        const notes = document.getElementById("notes" + ticketId).value;
+        try {
+            await api("/api/tickets/" + ticketId + "/done?notes=" + encodeURIComponent(notes), "POST");
+            document.activeElement.blur();
+            loadQueue();
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    async function searchPatient() {
+        document.getElementById("searchError").innerText = "";
+        document.getElementById("searchResult").innerHTML = "";
+        const value = document.getElementById("searchValue").value;
+
+        try {
+            const p = await api("/api/patients/search?value=" + encodeURIComponent(value));
+            let html = "<p><b>Name:</b> " + escapeHtml(p.fullName) + "<br>" +
+                "<b>File number:</b> " + escapeHtml(p.fileNumber) + "<br>" +
+                "<b>ID number:</b> " + (p.idNumber ? escapeHtml(p.idNumber) : "Not known yet") + "<br>";
+            if (p.tempCode) {
+                html += "<b>Temporary code:</b> " + escapeHtml(p.tempCode) + "<br>";
+            }
+            html += "</p>";
+
+            // patients registered without ID can get their ID added later
+            if (!p.idNumber) {
+                html += "<h3>Link ID number</h3>" +
+                    "<label>Full name</label><input type='text' id='linkName' value='" + escapeHtml(p.fullName) + "'>" +
+                    "<label>ID number</label><input type='text' id='linkId' maxlength='13'>" +
+                    "<button onclick='linkId(" + p.id + ")'>Save ID</button>";
+            }
+            document.getElementById("searchResult").innerHTML = html;
+        } catch (e) {
+            document.getElementById("searchError").innerText = e.message;
+        }
+    }
+
+    async function linkId(patientId) {
+        const idNumber = document.getElementById("linkId").value;
+        const fullName = document.getElementById("linkName").value;
+        try {
+            await api("/api/patients/" + patientId + "/link-id?idNumber=" + encodeURIComponent(idNumber) +
+                "&fullName=" + encodeURIComponent(fullName), "PUT");
+            alert("ID number saved to the file");
+            document.getElementById("searchValue").value = idNumber;
+            searchPatient();
+            loadQueue();
+        } catch (e) {
+            document.getElementById("searchError").innerText = e.message;
+        }
+    }
+
+    loadQueue();
+    // refresh the queue every 5 seconds
+    setInterval(loadQueue, 5000);
+</script>
+</body>
+</html>

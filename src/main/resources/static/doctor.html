@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doctor Appointments</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+    <h1>Doctor Appointments</h1>
+    <a href="index.html">Home</a>
+    <a href="staff.html">Staff Dashboard</a>
+</header>
+
+<div class="container">
+
+    <div class="card">
+        <h2>Book appointment</h2>
+
+        <label for="idNumber">Patient ID number</label>
+        <input type="text" id="idNumber" maxlength="13">
+
+        <label for="fullName">Patient full name (needed for new patients)</label>
+        <input type="text" id="fullName">
+
+        <label for="doctorName">Doctor</label>
+        <input type="text" id="doctorName" placeholder="e.g. Dr Mokoena">
+
+        <label for="appointmentDate">Date and time</label>
+        <input type="datetime-local" id="appointmentDate">
+
+        <label for="reason">Reason</label>
+        <input type="text" id="reason">
+
+        <button onclick="book()">Book</button>
+        <p class="error" id="error"></p>
+        <p class="success" id="message"></p>
+    </div>
+
+    <div class="card">
+        <h2>Upcoming appointments</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Date</th>
+                <th>Patient</th>
+                <th>File number</th>
+                <th>Doctor</th>
+                <th>Reason</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="appointmentTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+    async function loadAppointments() {
+        const appointments = await api("/api/appointments");
+        let rows = "";
+        for (const a of appointments) {
+            rows += "<tr>" +
+                "<td>" + formatDateTime(a.appointmentDate) + "</td>" +
+                "<td>" + escapeHtml(a.patient.fullName) + "</td>" +
+                "<td>" + escapeHtml(a.patient.fileNumber) + "</td>" +
+                "<td>" + escapeHtml(a.doctorName) + "</td>" +
+                "<td>" + escapeHtml(a.reason) + "</td>" +
+                "<td><button class='red' onclick='cancelAppointment(" + a.id + ")'>Cancel</button></td>" +
+                "</tr>";
+        }
+        if (appointments.length === 0) {
+            rows = "<tr><td colspan='6'>No upcoming appointments</td></tr>";
+        }
+        document.getElementById("appointmentTable").innerHTML = rows;
+    }
+
+    async function book() {
+        document.getElementById("error").innerText = "";
+        document.getElementById("message").innerText = "";
+
+        const request = {
+            idNumber: document.getElementById("idNumber").value,
+            fullName: document.getElementById("fullName").value,
+            doctorName: document.getElementById("doctorName").value,
+            appointmentDate: document.getElementById("appointmentDate").value || null,
+            reason: document.getElementById("reason").value
+        };
+
+        try {
+            const a = await api("/api/appointments", "POST", request);
+            document.getElementById("message").innerText =
+                "Appointment booked for " + a.patient.fullName + " on " + formatDateTime(a.appointmentDate);
+            loadAppointments();
+        } catch (e) {
+            document.getElementById("error").innerText = e.message;
+        }
+    }
+
+    async function cancelAppointment(id) {
+        if (!confirm("Cancel this appointment?")) {
+            return;
+        }
+        try {
+            await api("/api/appointments/" + id + "/cancel", "PUT");
+            loadAppointments();
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    loadAppointments();
+</script>
+</body>
+</html>
